@@ -11,7 +11,9 @@ from pathlib import Path
 
 from audio_capture import start_capture_stream
 from transcriber import DeepgramTranscriber, TranscriptionResult
-from transcript_mgr import TranscriptManager
+from transcript_mgr import TranscriptManager, auto_process_transcript
+from chat_handler import detect_intent, handle_chat_message, NoteManager
+from library_search import search_library
 from config import HOST, PORT
 
 
@@ -23,6 +25,7 @@ class AppState:
     def __init__(self):
         self.state: str = "idle"  # idle | recording | processing
         self.transcript_mgr = TranscriptManager()
+        self.note_mgr = NoteManager()
         self.transcriber: DeepgramTranscriber | None = None
         self.stop_event: asyncio.Event | None = None
         self.capture_task: asyncio.Task | None = None
@@ -34,6 +37,7 @@ class AppState:
         self.stop_event = None
         self.capture_task = None
         self.start_time = None
+        self.note_mgr.clear()
 
     @property
     def duration_seconds(self) -> float:
@@ -143,8 +147,14 @@ async def stop():
 
     # Export VTT if there are entries
     vtt_path = None
+    processed_path = None
     if app_state.transcript_mgr.entry_count() > 0:
         vtt_path = app_state.transcript_mgr.save_vtt(meeting_title="meeting")
+        # Auto-process transcript (extract decisions, tasks, ideas)
+        try:
+            processed_path = await auto_process_transcript(vtt_path)
+        except Exception as e:
+            print(f"Auto-processing failed: {e}")
 
     duration = app_state.duration_seconds
     entries = app_state.transcript_mgr.entry_count()
@@ -155,7 +165,46 @@ async def stop():
         "duration": duration,
         "entries": entries,
         "vtt_path": vtt_path,
+        "processed_path": processed_path,
     }
+
+
+# --- Chat + Notes ---
+
+@app.post("/api/chat")
+async def chat(body: dict):
+    """Handle a chat message — question or note."""
+    message = body.get("message", "").strip()
+    if not message:
+        return JSONResponse({"error": "Empty message"}, status_code=400)
+
+    intent = detect_intent(message)
+
+    if intent == "note":
+        note = app_state.note_mgr.capture_note(
+            message=message,
+            transcript_entries=app_state.transcript_mgr.get_entries(),
+            timestamp_ms=int(app_state.duration_seconds * 1000),
+        )
+        return {"type": "note", "response": f"Noted: {message}", "note": note}
+
+    # Question — search Library for context, then ask Claude
+    library_results = search_library(message)
+    transcript_text = app_state.transcript_mgr.get_full_text()
+
+    response_text = await handle_chat_message(
+        message=message,
+        transcript_text=transcript_text,
+        library_results=library_results,
+    )
+
+    return {"type": "question", "response": response_text}
+
+
+@app.get("/api/notes")
+async def get_notes():
+    """Return all captured action notes."""
+    return app_state.note_mgr.get_notes()
 
 
 # --- WebSocket for live transcript ---

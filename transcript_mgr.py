@@ -115,3 +115,52 @@ def _ms_to_vtt_time(ms: int) -> str:
     minutes = (total_seconds % 3600) // 60
     seconds = total_seconds % 60
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}"
+
+
+async def auto_process_transcript(vtt_path: str) -> str:
+    """Extract decisions, tasks, and ideas from a VTT transcript using Claude.
+
+    Saves a markdown summary file alongside the VTT and returns its path.
+    """
+    from anthropic import AsyncAnthropic
+    from config import ANTHROPIC_API_KEY, AI_MODEL
+
+    vtt_file = Path(vtt_path)
+    if not vtt_file.exists():
+        raise FileNotFoundError(f"VTT file not found: {vtt_path}")
+
+    vtt_content = vtt_file.read_text()
+
+    client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    response = await client.messages.create(
+        model=AI_MODEL,
+        max_tokens=2048,
+        system="You extract structured information from meeting transcripts. Be concise and precise.",
+        messages=[{
+            "role": "user",
+            "content": f"""Extract the following from this meeting transcript. Use markdown format.
+
+## Decisions
+List any decisions made (who decided what).
+
+## Action Items
+List any tasks or action items (who needs to do what, by when if mentioned).
+
+## Key Ideas
+List any notable ideas or proposals discussed.
+
+## Summary
+2-3 sentence summary of the meeting.
+
+---
+
+Transcript:
+{vtt_content}""",
+        }],
+    )
+
+    output_text = response.content[0].text
+    output_path = vtt_file.with_suffix(".md")
+    output_path.write_text(output_text)
+    print(f"Auto-processing saved: {output_path}")
+    return str(output_path)

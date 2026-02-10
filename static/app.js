@@ -169,6 +169,77 @@ async function stopRecording() {
     }
 }
 
+// --- Chat ---
+
+const chatMessages = document.getElementById("chat-messages");
+const chatInput = document.getElementById("chat-input");
+const btnSend = document.getElementById("btn-send");
+const noteCountEl = document.getElementById("note-count");
+let noteTotal = 0;
+
+function addChatMessage(role, text, type) {
+    // Remove placeholder on first message
+    const placeholder = chatMessages.querySelector(".placeholder");
+    if (placeholder) placeholder.remove();
+
+    const div = document.createElement("div");
+    div.className = `chat-msg chat-${role}`;
+    if (type === "note") div.classList.add("chat-note");
+
+    const label = document.createElement("span");
+    label.className = "chat-label";
+    label.textContent = role === "user" ? "You" : "AI";
+
+    const content = document.createElement("span");
+    content.className = "chat-content";
+    content.textContent = text;
+
+    div.appendChild(label);
+    div.appendChild(content);
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function sendChat() {
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    chatInput.value = "";
+    addChatMessage("user", message);
+
+    // Disable input while waiting
+    chatInput.disabled = true;
+    btnSend.disabled = true;
+
+    try {
+        const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message }),
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            addChatMessage("ai", "Error: " + (err.error || "Request failed"));
+            return;
+        }
+
+        const data = await res.json();
+        addChatMessage("ai", data.response, data.type);
+
+        if (data.type === "note") {
+            noteTotal++;
+            noteCountEl.textContent = `${noteTotal} notes`;
+        }
+    } catch (e) {
+        addChatMessage("ai", "Error: " + e.message);
+    } finally {
+        chatInput.disabled = false;
+        btnSend.disabled = false;
+        chatInput.focus();
+    }
+}
+
 // --- Init ---
 
 // Check initial status

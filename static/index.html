@@ -35,13 +35,14 @@
         <div class="panel" id="chat-panel">
             <div class="panel-header">
                 <h2>AI Chat</h2>
+                <span id="note-count">0 notes</span>
             </div>
             <div id="chat-messages" class="panel-body">
-                <p class="placeholder">Chat will be available in Phase 3</p>
+                <p class="placeholder">Ask questions or capture notes during the meeting</p>
             </div>
             <div class="chat-input">
-                <input type="text" id="chat-input" placeholder="Ask about the meeting..." disabled>
-                <button id="btn-send" disabled>Send</button>
+                <input type="text" id="chat-input" placeholder="Ask a question or type 'note:' to capture..." onkeydown="if(event.key==='Enter')sendChat()">
+                <button id="btn-send" onclick="sendChat()">Send</button>
             </div>
         </div>
     </main>

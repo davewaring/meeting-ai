@@ -1,0 +1,170 @@
+"""Phase 3 tests: AI chat, Library search, action notes, auto-processing."""
+
+import sys
+import os
+import pytest
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+# --- Library Search Tests ---
+
+# Test 1: Library search returns results for known content
+def test_library_search_finds_content():
+    """Search for a term known to exist in the Library."""
+    from library_search import search_library
+    results = search_library("plugin architecture", library_path="~/BrainDrive-Library")
+    assert len(results) > 0, "No results for 'plugin architecture' — should match spec/decision docs"
+    for r in results:
+        assert "file" in r, "Result missing 'file' field"
+        assert "snippet" in r, "Result missing 'snippet' field"
+        assert len(r["snippet"]) > 0, "Empty snippet"
+
+
+# Test 2: Library search returns empty for nonsense query
+def test_library_search_no_results():
+    """Search for gibberish returns empty list, not an error."""
+    from library_search import search_library
+    results = search_library("qwertyuiop_absolutely_nothing_matches_this_98765")
+    assert isinstance(results, list)
+    assert len(results) == 0
+
+
+# Test 3: Library search results are capped
+def test_library_search_result_limit():
+    """Results should be limited to top-N (not dump the whole Library)."""
+    from library_search import search_library
+    results = search_library("BrainDrive", library_path="~/BrainDrive-Library")
+    assert len(results) <= 10, f"Too many results ({len(results)}) — should cap at 10"
+
+
+# --- Chat Handler Tests ---
+
+# Test 4: Chat handler returns response for a question
+@pytest.mark.anyio
+async def test_chat_responds_to_question():
+    """Send a question with fake transcript, get AI response back."""
+    from config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY:
+        pytest.skip("ANTHROPIC_API_KEY not set")
+
+    from chat_handler import handle_chat_message
+    fake_transcript = "Dave J said the MCP server is ready. Nav mentioned node_modules bloat."
+    response = await handle_chat_message(
+        message="What did Dave J say?",
+        transcript_text=fake_transcript,
+        library_results=[],
+    )
+    assert response is not None, "No response from chat handler"
+    assert len(response) > 10, "Response too short"
+    assert "MCP" in response or "Dave" in response or "server" in response.lower(), (
+        "Response doesn't reference transcript content"
+    )
+
+
+# Test 5: Note intent detected correctly
+def test_note_intent_detection():
+    """Messages starting with 'note', 'make a note', 'capture', 'remind' are classified as notes."""
+    from chat_handler import detect_intent
+    assert detect_intent("make a note to update the spec") == "note"
+    assert detect_intent("note: Dave said the deadline is March") == "note"
+    assert detect_intent("capture this — we agreed on the approach") == "note"
+    assert detect_intent("remind me to follow up with Nav") == "note"
+    assert detect_intent("What did we decide about the timeline?") == "question"
+    assert detect_intent("Summarize the discussion so far") == "question"
+
+
+# Test 6: Action note captured with transcript context
+def test_action_note_capture():
+    """Notes store the message + surrounding transcript context."""
+    from chat_handler import NoteManager
+    mgr = NoteManager()
+    fake_transcript_entries = [
+        {"start_ms": 0, "text": "Let's push the deadline to March 1."},
+        {"start_ms": 5000, "text": "That gives us three more weeks."},
+        {"start_ms": 10000, "text": "Agreed, March 1 it is."},
+    ]
+    note = mgr.capture_note(
+        message="make a note to update the spec with new March 1 deadline",
+        transcript_entries=fake_transcript_entries,
+        timestamp_ms=12000,
+    )
+    assert note is not None
+    assert "March 1" in note["message"]
+    assert len(note["context"]) > 0, "Note missing transcript context"
+    assert note["timestamp_ms"] == 12000
+
+
+# Test 7: Notes endpoint returns all captured notes
+@pytest.mark.anyio
+async def test_notes_endpoint():
+    """GET /api/notes returns list of captured notes."""
+    from httpx import AsyncClient, ASGITransport
+    from server import app
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://localhost:8910") as client:
+        response = await client.get("/api/notes")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list), "Notes endpoint should return a list"
+
+
+# Test 8: Chat endpoint returns response
+@pytest.mark.anyio
+async def test_chat_endpoint():
+    """POST /api/chat with a message returns AI response."""
+    from config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY:
+        pytest.skip("ANTHROPIC_API_KEY not set")
+
+    from httpx import AsyncClient, ASGITransport
+    from server import app
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://localhost:8910") as client:
+        response = await client.post("/api/chat", json={"message": "What is BrainDrive?"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "response" in data, "Missing 'response' field"
+    assert len(data["response"]) > 0, "Empty AI response"
+
+
+# Test 9: Chat doesn't crash with empty transcript
+@pytest.mark.anyio
+async def test_chat_with_empty_transcript():
+    """AI should handle questions when no transcript exists yet."""
+    from config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY:
+        pytest.skip("ANTHROPIC_API_KEY not set")
+
+    from chat_handler import handle_chat_message
+    response = await handle_chat_message(
+        message="What are we discussing?",
+        transcript_text="",
+        library_results=[],
+    )
+    assert response is not None
+    assert len(response) > 0, "Should respond even with empty transcript"
+
+
+# Test 10: Auto-processing produces output file
+@pytest.mark.anyio
+async def test_auto_processing_output():
+    """After VTT export, processing should produce a summary/extraction file."""
+    from config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY:
+        pytest.skip("ANTHROPIC_API_KEY not set")
+
+    import tempfile
+    from transcript_mgr import TranscriptManager, auto_process_transcript
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mgr = TranscriptManager(library_path=tmpdir)
+        mgr.add_entry(start_ms=0, end_ms=5000, text="We decided to use Deepgram for transcription.")
+        mgr.add_entry(start_ms=5000, end_ms=10000, text="Nav will fix the node modules issue by Friday.")
+        mgr.add_entry(start_ms=10000, end_ms=15000, text="New idea: add a mobile companion app.")
+        vtt_path = mgr.save_vtt(meeting_title="test-meeting")
+        output_path = await auto_process_transcript(vtt_path)
+        assert os.path.exists(output_path), f"Processing output not found at {output_path}"
+        with open(output_path) as f:
+            content = f.read()
+        assert len(content) > 50, "Processing output too short"
