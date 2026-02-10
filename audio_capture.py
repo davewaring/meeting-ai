@@ -15,6 +15,25 @@ def find_blackhole_device() -> dict | None:
     return None
 
 
+def find_mic_device() -> dict | None:
+    """Find the default microphone input device."""
+    devices = sd.query_devices()
+    # Prefer the system default input
+    try:
+        default_idx = sd.default.device[0]  # default input device index
+        if default_idx is not None and default_idx >= 0:
+            d = devices[default_idx]
+            if d["max_input_channels"] >= CHANNELS and "BlackHole" not in d["name"]:
+                return {"index": default_idx, "name": d["name"], "channels": d["max_input_channels"]}
+    except Exception:
+        pass
+    # Fallback: find any built-in mic
+    for i, d in enumerate(devices):
+        if d["max_input_channels"] >= CHANNELS and "Microphone" in d["name"]:
+            return {"index": i, "name": d["name"], "channels": d["max_input_channels"]}
+    return None
+
+
 def get_capture_config() -> dict:
     """Return the audio capture configuration."""
     return {
@@ -48,7 +67,13 @@ def capture_audio_chunk(duration_seconds: float = 2.0, device_index: int | None 
 
 
 async def start_capture_stream(callback, stop_event: asyncio.Event):
-    """Start streaming audio from BlackHole, calling callback with each chunk.
+    """Start streaming audio from BlackHole + microphone, mixed into one stream.
+
+    Captures both sides of the conversation:
+    - BlackHole: other participants' audio (speaker output)
+    - Microphone: your own voice
+
+    Both sources are mixed together before sending to the transcription callback.
 
     Args:
         callback: async function that receives (audio_bytes: bytes) for each chunk
@@ -61,40 +86,88 @@ async def start_capture_stream(callback, stop_event: asyncio.Event):
             "Install with: brew install blackhole-2ch"
         )
 
+    mic = find_mic_device()
+
     chunk_samples = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)
     loop = asyncio.get_event_loop()
-    audio_queue = asyncio.Queue()
 
-    def audio_callback(indata, frames, time_info, status):
-        """Called by sounddevice for each audio chunk."""
+    # Separate queues for each source
+    bh_queue = asyncio.Queue()
+    mic_queue = asyncio.Queue()
+
+    def bh_callback(indata, frames, time_info, status):
         if status:
-            print(f"Audio status: {status}")
-        # Copy the data and put it in the async queue
-        audio_bytes = indata.copy().tobytes()
-        loop.call_soon_threadsafe(audio_queue.put_nowait, audio_bytes)
+            print(f"Audio status (blackhole): {status}")
+        loop.call_soon_threadsafe(bh_queue.put_nowait, indata.copy())
 
-    stream = sd.InputStream(
+    def mic_callback(indata, frames, time_info, status):
+        if status:
+            print(f"Audio status (mic): {status}")
+        loop.call_soon_threadsafe(mic_queue.put_nowait, indata.copy())
+
+    # BlackHole stream (other participants)
+    bh_stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=CHANNELS,
         dtype=DTYPE,
         device=bh["index"],
         blocksize=chunk_samples,
-        callback=audio_callback,
+        callback=bh_callback,
     )
 
+    # Mic stream (your voice)
+    mic_stream = None
+    if mic:
+        mic_stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=CHANNELS,
+            dtype=DTYPE,
+            device=mic["index"],
+            blocksize=chunk_samples,
+            callback=mic_callback,
+        )
+
     print(f"Starting audio capture from: {bh['name']}")
-    stream.start()
+    bh_stream.start()
+    if mic_stream:
+        print(f"Starting mic capture from: {mic['name']}")
+        mic_stream.start()
+    else:
+        print("No microphone found — capturing speaker audio only.")
 
     try:
         while not stop_event.is_set():
             try:
-                audio_bytes = await asyncio.wait_for(audio_queue.get(), timeout=0.5)
-                await callback(audio_bytes)
+                # Wait for a BlackHole chunk (primary clock source)
+                bh_data = await asyncio.wait_for(bh_queue.get(), timeout=0.5)
             except asyncio.TimeoutError:
                 continue
+
+            # Grab the latest mic chunk if available (non-blocking)
+            mic_data = None
+            if mic_stream:
+                try:
+                    while not mic_queue.empty():
+                        mic_data = mic_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+
+            # Mix: add both int16 arrays with clipping
+            if mic_data is not None:
+                mixed = np.clip(
+                    bh_data.astype(np.int32) + mic_data.astype(np.int32),
+                    -32768, 32767,
+                ).astype(np.int16)
+            else:
+                mixed = bh_data
+
+            await callback(mixed.tobytes())
     finally:
-        stream.stop()
-        stream.close()
+        bh_stream.stop()
+        bh_stream.close()
+        if mic_stream:
+            mic_stream.stop()
+            mic_stream.close()
         print("Audio capture stopped.")
 
 
