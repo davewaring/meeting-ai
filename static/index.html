@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeting AI</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>Meeting AI</h1>
+            <span id="status-badge" class="badge badge-idle">Idle</span>
+        </div>
+        <div class="header-center">
+            <span id="timer">00:00:00</span>
+        </div>
+        <div class="header-right">
+            <button id="btn-start" onclick="startRecording()">Start</button>
+            <button id="btn-stop" onclick="stopRecording()" disabled>Stop</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="panel" id="transcript-panel">
+            <div class="panel-header">
+                <h2>Live Transcript</h2>
+                <span id="entry-count">0 entries</span>
+            </div>
+            <div id="transcript" class="panel-body">
+                <p class="placeholder">Press Start to begin transcription...</p>
+            </div>
+        </div>
+
+        <div class="panel" id="chat-panel">
+            <div class="panel-header">
+                <h2>AI Chat</h2>
+            </div>
+            <div id="chat-messages" class="panel-body">
+                <p class="placeholder">Chat will be available in Phase 3</p>
+            </div>
+            <div class="chat-input">
+                <input type="text" id="chat-input" placeholder="Ask about the meeting..." disabled>
+                <button id="btn-send" disabled>Send</button>
+            </div>
+        </div>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
