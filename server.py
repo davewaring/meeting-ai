@@ -104,6 +104,7 @@ async def start():
                 start_ms=int(result.start * 1000),
                 end_ms=int(result.end * 1000),
                 text=result.text,
+                speaker=result.speaker,
             )
 
     # Connect to Deepgram

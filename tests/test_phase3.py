@@ -199,3 +199,85 @@ def test_search_pattern_edge_cases():
     # Empty-ish query
     pattern = _extract_search_pattern("")
     assert len(pattern) >= 0  # should not crash
+
+
+# --- Diarization Tests ---
+
+# Test 13: Transcript entry stores speaker field
+def test_transcript_entry_with_speaker():
+    """Entries with a speaker should include the speaker field."""
+    from transcript_mgr import TranscriptManager
+    mgr = TranscriptManager(library_path="/tmp/test-diarization")
+    mgr.add_entry(start_ms=0, end_ms=5000, text="Hello world", speaker=0)
+    entries = mgr.get_entries()
+    assert entries[0]["speaker"] == 0
+
+
+# Test 14: Transcript entry without speaker is backward compatible
+def test_transcript_entry_without_speaker():
+    """Entries without speaker should not have the field."""
+    from transcript_mgr import TranscriptManager
+    mgr = TranscriptManager(library_path="/tmp/test-diarization")
+    mgr.add_entry(start_ms=0, end_ms=5000, text="Hello world")
+    entries = mgr.get_entries()
+    assert "speaker" not in entries[0]
+
+
+# Test 15: VTT export with speaker tags
+def test_vtt_export_with_speakers():
+    """VTT should include <v Speaker N> voice tags when speaker is set."""
+    from transcript_mgr import TranscriptManager
+    mgr = TranscriptManager(library_path="/tmp/test-diarization")
+    mgr.add_entry(start_ms=0, end_ms=5000, text="First line", speaker=0)
+    mgr.add_entry(start_ms=5000, end_ms=10000, text="Second line", speaker=1)
+    mgr.add_entry(start_ms=10000, end_ms=15000, text="No speaker line")
+    vtt = mgr.export_vtt()
+    assert "<v Speaker 0>" in vtt
+    assert "<v Speaker 1>" in vtt
+    assert "No speaker line" in vtt
+    # Entry without speaker should NOT have voice tag
+    lines = vtt.split("\n")
+    no_speaker_line = [l for l in lines if "No speaker line" in l][0]
+    assert "<v " not in no_speaker_line
+
+
+# Test 16: Full text includes speaker labels
+def test_full_text_with_speakers():
+    """get_full_text() should prefix entries with [Speaker N]: when available."""
+    from transcript_mgr import TranscriptManager
+    mgr = TranscriptManager(library_path="/tmp/test-diarization")
+    mgr.add_entry(start_ms=0, end_ms=5000, text="Hello", speaker=0)
+    mgr.add_entry(start_ms=5000, end_ms=10000, text="World")
+    text = mgr.get_full_text()
+    assert "[Speaker 0]: Hello" in text
+    assert "World" in text
+    assert "[Speaker" not in text.split("World")[0].split("Hello")[1]  # no label on unlabeled entry
+
+
+# Test 17: TranscriptionResult carries speaker
+def test_transcription_result_speaker():
+    """TranscriptionResult should store speaker ID."""
+    from transcriber import TranscriptionResult
+    tr = TranscriptionResult(text="Test", start=0.0, end=1.0, is_final=True, speaker=2)
+    assert tr.speaker == 2
+    tr_no = TranscriptionResult(text="Test", start=0.0, end=1.0, is_final=True)
+    assert tr_no.speaker is None
+
+
+# Test 18: Dominant speaker majority vote
+def test_dominant_speaker():
+    """_dominant_speaker should return the most common speaker ID."""
+    from transcriber import _dominant_speaker
+
+    class MockWord:
+        def __init__(self, speaker):
+            self.speaker = speaker
+
+    words = [MockWord(0), MockWord(1), MockWord(0), MockWord(0), MockWord(1)]
+    assert _dominant_speaker(words) == 0
+
+    words = [MockWord(1), MockWord(1), MockWord(0)]
+    assert _dominant_speaker(words) == 1
+
+    # No speaker data
+    assert _dominant_speaker([]) is None

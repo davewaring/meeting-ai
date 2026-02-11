@@ -62,6 +62,12 @@ function addTranscriptEntry(entry) {
     text.textContent = entry.text;
 
     div.appendChild(ts);
+    if (entry.speaker != null) {
+        const spk = document.createElement("span");
+        spk.className = `speaker speaker-${entry.speaker % 6}`;
+        spk.textContent = `S${entry.speaker}`;
+        div.appendChild(spk);
+    }
     div.appendChild(text);
     transcript.appendChild(div);
 

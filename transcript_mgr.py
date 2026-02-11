@@ -21,13 +21,15 @@ class TranscriptManager:
         else:
             self._transcripts_path = TRANSCRIPTS_PATH
 
-    def add_entry(self, start_ms: int, end_ms: int, text: str):
+    def add_entry(self, start_ms: int, end_ms: int, text: str, speaker: int | None = None):
         """Add a transcript entry and broadcast to connected clients."""
         entry = {
             "start_ms": start_ms,
             "end_ms": end_ms,
             "text": text,
         }
+        if speaker is not None:
+            entry["speaker"] = speaker
         self._entries.append(entry)
         # Fire-and-forget broadcast
         try:
@@ -41,8 +43,14 @@ class TranscriptManager:
         return list(self._entries)
 
     def get_full_text(self) -> str:
-        """Return all transcript text joined."""
-        return " ".join(e["text"] for e in self._entries)
+        """Return all transcript text joined, with speaker labels when available."""
+        parts = []
+        for e in self._entries:
+            if "speaker" in e:
+                parts.append(f"[Speaker {e['speaker']}]: {e['text']}")
+            else:
+                parts.append(e["text"])
+        return " ".join(parts)
 
     def clear(self):
         """Clear all entries."""
@@ -84,7 +92,10 @@ class TranscriptManager:
             end = _ms_to_vtt_time(entry["end_ms"])
             lines.append(str(i))
             lines.append(f"{start} --> {end}")
-            lines.append(entry["text"])
+            if "speaker" in entry:
+                lines.append(f"<v Speaker {entry['speaker']}>{entry['text']}")
+            else:
+                lines.append(entry["text"])
             lines.append("")
         return "\n".join(lines)
 

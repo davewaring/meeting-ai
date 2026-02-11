@@ -4,21 +4,38 @@ import asyncio
 from typing import Callable
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
-from config import DEEPGRAM_API_KEY, SAMPLE_RATE
+from collections import Counter
+from config import DEEPGRAM_API_KEY, SAMPLE_RATE, ENABLE_DIARIZATION
+
+
+def _dominant_speaker(words) -> int | None:
+    """Return the most common speaker ID from word-level diarization data.
+
+    Args:
+        words: list of word objects with a ``speaker`` attribute (from Deepgram).
+    Returns:
+        The majority speaker ID, or None if no speaker data is present.
+    """
+    speakers = [w.speaker for w in words if hasattr(w, "speaker") and w.speaker is not None]
+    if not speakers:
+        return None
+    return Counter(speakers).most_common(1)[0][0]
 
 
 class TranscriptionResult:
     """A single transcription result from Deepgram."""
 
-    def __init__(self, text: str, start: float, end: float, is_final: bool):
+    def __init__(self, text: str, start: float, end: float, is_final: bool, speaker: int | None = None):
         self.text = text
         self.start = start  # seconds
         self.end = end  # seconds
         self.is_final = is_final
+        self.speaker = speaker
 
     def __repr__(self):
         kind = "FINAL" if self.is_final else "interim"
-        return f"[{self.start:.1f}-{self.end:.1f}] ({kind}) {self.text}"
+        spk = f" S{self.speaker}" if self.speaker is not None else ""
+        return f"[{self.start:.1f}-{self.end:.1f}] ({kind}{spk}) {self.text}"
 
 
 class DeepgramTranscriber:
@@ -37,7 +54,7 @@ class DeepgramTranscriber:
 
     async def connect(self):
         """Open a streaming WebSocket connection to Deepgram."""
-        self._ctx_manager = self._client.listen.v1.connect(
+        params = dict(
             model="nova-3",
             language="en",
             encoding="linear16",
@@ -49,6 +66,9 @@ class DeepgramTranscriber:
             vad_events="true",
             endpointing="300",
         )
+        if ENABLE_DIARIZATION:
+            params["diarize"] = "true"
+        self._ctx_manager = self._client.listen.v1.connect(**params)
         self._socket = await self._ctx_manager.__aenter__()
         # Start background task to receive transcription results
         self._recv_task = asyncio.create_task(self._receive_loop())
@@ -85,11 +105,18 @@ class DeepgramTranscriber:
             if not text:
                 return
 
+            speaker = None
+            if ENABLE_DIARIZATION:
+                words = getattr(alternatives[0], "words", None)
+                if words:
+                    speaker = _dominant_speaker(words)
+
             tr = TranscriptionResult(
                 text=text,
                 start=result.start,
                 end=result.start + result.duration,
                 is_final=result.is_final,
+                speaker=speaker,
             )
 
             if self.on_transcript:

@@ -26,5 +26,8 @@ CHANNELS = 1
 DTYPE = "int16"
 CHUNK_DURATION_MS = 100  # Send audio every 100ms
 
+# Diarization
+ENABLE_DIARIZATION = os.getenv("ENABLE_DIARIZATION", "true").lower() in ("true", "1", "yes")
+
 # AI
 AI_MODEL = os.getenv("AI_MODEL", "claude-sonnet-4-5-20250929")
