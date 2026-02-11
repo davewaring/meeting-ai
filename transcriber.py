@@ -98,7 +98,10 @@ class DeepgramTranscriber:
             return
 
         try:
-            alternatives = result.channel.alternatives
+            channel = result.channel
+            if not hasattr(channel, "alternatives"):
+                return
+            alternatives = channel.alternatives
             if not alternatives:
                 return
             text = alternatives[0].transcript.strip()
