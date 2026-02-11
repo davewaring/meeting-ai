@@ -8,15 +8,12 @@ load_dotenv()
 
 # API Keys
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 # Paths
 LIBRARY_PATH = Path(os.getenv("LIBRARY_PATH", "~/BrainDrive-Library")).expanduser()
 TRANSCRIPTS_PATH = LIBRARY_PATH / "transcripts"
-
-# Server
-HOST = os.getenv("HOST", "127.0.0.1")
-PORT = int(os.getenv("PORT", "8910"))
+TRANSCRIPT_FILE_PATH = Path(os.getenv("TRANSCRIPT_FILE_PATH", "~/meeting-ai/transcript-live.txt")).expanduser()
+VTT_OUTPUT_DIR = Path(os.getenv("VTT_OUTPUT_DIR", str(TRANSCRIPTS_PATH)))
 
 # Audio capture
 SPEAKER_VOLUME = float(os.getenv("SPEAKER_VOLUME", "1.0"))
@@ -28,6 +25,3 @@ CHUNK_DURATION_MS = 100  # Send audio every 100ms
 
 # Diarization
 ENABLE_DIARIZATION = os.getenv("ENABLE_DIARIZATION", "true").lower() in ("true", "1", "yes")
-
-# AI
-AI_MODEL = os.getenv("AI_MODEL", "claude-sonnet-4-5-20250929")
