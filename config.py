@@ -19,6 +19,8 @@ HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8910"))
 
 # Audio capture
+SPEAKER_VOLUME = float(os.getenv("SPEAKER_VOLUME", "1.0"))
+MIC_VOLUME = float(os.getenv("MIC_VOLUME", "1.0"))
 SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = "int16"

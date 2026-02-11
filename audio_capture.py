@@ -3,7 +3,7 @@
 import asyncio
 import numpy as np
 import sounddevice as sd
-from config import SAMPLE_RATE, CHANNELS, DTYPE, CHUNK_DURATION_MS
+from config import SAMPLE_RATE, CHANNELS, DTYPE, CHUNK_DURATION_MS, SPEAKER_VOLUME, MIC_VOLUME
 
 
 def find_blackhole_device() -> dict | None:
@@ -152,14 +152,13 @@ async def start_capture_stream(callback, stop_event: asyncio.Event):
                 except asyncio.QueueEmpty:
                     pass
 
-            # Mix: add both int16 arrays with clipping
+            # Apply software volume and mix
+            bh_scaled = (bh_data.astype(np.int32) * SPEAKER_VOLUME).astype(np.int32)
             if mic_data is not None:
-                mixed = np.clip(
-                    bh_data.astype(np.int32) + mic_data.astype(np.int32),
-                    -32768, 32767,
-                ).astype(np.int16)
+                mic_scaled = (mic_data.astype(np.int32) * MIC_VOLUME).astype(np.int32)
+                mixed = np.clip(bh_scaled + mic_scaled, -32768, 32767).astype(np.int16)
             else:
-                mixed = bh_data
+                mixed = np.clip(bh_scaled, -32768, 32767).astype(np.int16)
 
             await callback(mixed.tobytes())
     finally:
