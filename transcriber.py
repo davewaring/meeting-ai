@@ -103,7 +103,7 @@ class DeepgramTranscriber:
     async def send_audio(self, audio_bytes: bytes):
         """Send an audio chunk to Deepgram."""
         if self._socket:
-            self._socket.send_media(audio_bytes)
+            await self._socket.send_media(audio_bytes)
 
     async def close(self):
         """Close the Deepgram connection."""
