@@ -3,12 +3,36 @@
 import re
 from anthropic import AsyncAnthropic
 from config import ANTHROPIC_API_KEY, AI_MODEL
+from library_search import search_library
 
 _client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
+MAX_TOOL_CALLS = 3
+
+SEARCH_TOOL = {
+    "name": "search_library",
+    "description": (
+        "Search the BrainDrive Library (project docs, specs, decisions) using keywords. "
+        "Pass short keyword queries, NOT full sentences. "
+        "Example: 'plugin architecture' or 'node_modules bloat'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Short keyword search query",
+            },
+        },
+        "required": ["query"],
+    },
+}
+
 SYSTEM_PROMPT = """You are a helpful AI assistant participating in a live meeting. You have access to:
 1. The live transcript of the current meeting
-2. Relevant content from the BrainDrive Library (a knowledge base of project docs, decisions, and specs)
+2. A search_library tool to look up the BrainDrive Library (project docs, decisions, specs)
+
+When the user asks about project context, decisions, specs, architecture, or anything that might be documented, use the search_library tool with short keyword queries to find relevant information. You can search multiple times with different keywords if your first search doesn't find what you need.
 
 Be concise — the user is in a meeting and needs quick, useful answers. Reference specific details from the transcript or Library when relevant. If you don't have enough context, say so briefly."""
 
@@ -35,38 +59,65 @@ def detect_intent(message: str) -> str:
 async def handle_chat_message(
     message: str,
     transcript_text: str,
-    library_results: list[dict],
 ) -> str:
-    """Handle a chat message and return the AI response."""
+    """Handle a chat message using an agentic tool-use loop.
+
+    Claude can call search_library iteratively (up to MAX_TOOL_CALLS times)
+    to find relevant Library context before answering.
+    """
     if not _client:
         return "Error: ANTHROPIC_API_KEY not configured."
 
-    # Build user prompt with context
+    # Build initial user prompt with transcript context
     parts = []
-
     if transcript_text:
-        # Truncate to last ~4000 chars to keep prompt manageable
         truncated = transcript_text[-4000:] if len(transcript_text) > 4000 else transcript_text
         parts.append(f"## Meeting Transcript (recent)\n{truncated}")
-
-    if library_results:
-        lib_text = "\n\n".join(
-            f"**{r['file']}:**\n{r['snippet']}" for r in library_results[:5]
-        )
-        parts.append(f"## Library Context\n{lib_text}")
-
     parts.append(f"## User Question\n{message}")
-
     user_content = "\n\n---\n\n".join(parts)
 
+    messages = [{"role": "user", "content": user_content}]
+
+    for _ in range(MAX_TOOL_CALLS + 1):
+        response = await _client.messages.create(
+            model=AI_MODEL,
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+            tools=[SEARCH_TOOL],
+        )
+
+        if response.stop_reason == "end_turn":
+            # Extract text blocks from the response
+            text_parts = [b.text for b in response.content if b.type == "text"]
+            return "\n".join(text_parts) if text_parts else ""
+
+        # Process tool calls
+        messages.append({"role": "assistant", "content": response.content})
+        tool_results = []
+        for block in response.content:
+            if block.type == "tool_use":
+                query = block.input.get("query", "")
+                results = search_library(query)
+                result_text = "\n\n".join(
+                    f"**{r['file']}:**\n{r['snippet']}" for r in results
+                ) if results else "No results found."
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result_text,
+                })
+        messages.append({"role": "user", "content": tool_results})
+
+    # Fallback: hit max tool calls, do a final call without tools
     response = await _client.messages.create(
         model=AI_MODEL,
         max_tokens=1024,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
+        messages=messages,
     )
-
-    return response.content[0].text
+    text_parts = [b.text for b in response.content if b.type == "text"]
+    return "\n".join(text_parts) if text_parts else ""
 
 
 class NoteManager:

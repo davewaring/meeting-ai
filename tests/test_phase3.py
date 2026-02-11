@@ -54,7 +54,6 @@ async def test_chat_responds_to_question():
     response = await handle_chat_message(
         message="What did Dave J say?",
         transcript_text=fake_transcript,
-        library_results=[],
     )
     assert response is not None, "No response from chat handler"
     assert len(response) > 10, "Response too short"
@@ -141,7 +140,6 @@ async def test_chat_with_empty_transcript():
     response = await handle_chat_message(
         message="What are we discussing?",
         transcript_text="",
-        library_results=[],
     )
     assert response is not None
     assert len(response) > 0, "Should respond even with empty transcript"
@@ -168,3 +166,36 @@ async def test_auto_processing_output():
         with open(output_path) as f:
             content = f.read()
         assert len(content) > 50, "Processing output too short"
+
+
+# --- Library Search Keyword Extraction Tests ---
+
+# Test 11: Natural language query gets converted to keywords
+def test_library_search_natural_language():
+    """Natural-language questions should be converted to keyword patterns."""
+    from library_search import _extract_search_pattern
+    pattern = _extract_search_pattern("What is the plugin architecture?")
+    # Should NOT contain the raw question or '?'
+    assert "?" not in pattern
+    assert "what" not in pattern.lower().split("|")
+    # Should contain meaningful keywords
+    assert "plugin" in pattern.lower()
+    assert "architecture" in pattern.lower()
+    assert "|" in pattern  # OR pattern
+
+
+# Test 12: Edge cases for keyword extraction
+def test_search_pattern_edge_cases():
+    """Edge cases: all stopwords, short words, empty query."""
+    from library_search import _extract_search_pattern
+    # All stopwords — falls back to escaped query
+    pattern = _extract_search_pattern("is it a")
+    assert len(pattern) > 0
+
+    # Single keyword survives
+    pattern = _extract_search_pattern("What about diarization?")
+    assert "diarization" in pattern.lower()
+
+    # Empty-ish query
+    pattern = _extract_search_pattern("")
+    assert len(pattern) >= 0  # should not crash

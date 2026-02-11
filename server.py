@@ -13,7 +13,6 @@ from audio_capture import start_capture_stream
 from transcriber import DeepgramTranscriber, TranscriptionResult
 from transcript_mgr import TranscriptManager, auto_process_transcript
 from chat_handler import detect_intent, handle_chat_message, NoteManager
-from library_search import search_library
 from config import HOST, PORT
 
 
@@ -196,14 +195,12 @@ async def chat(body: dict):
         )
         return {"type": "note", "response": f"Noted: {message}", "note": note}
 
-    # Question — search Library for context, then ask Claude
-    library_results = search_library(message)
+    # Question — Claude searches Library via tool-use loop
     transcript_text = app_state.transcript_mgr.get_full_text()
 
     response_text = await handle_chat_message(
         message=message,
         transcript_text=transcript_text,
-        library_results=library_results,
     )
 
     return {"type": "question", "response": response_text}

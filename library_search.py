@@ -1,5 +1,6 @@
 """Library search using ripgrep subprocess."""
 
+import re
 import subprocess
 import shutil
 from pathlib import Path
@@ -7,6 +8,26 @@ from config import LIBRARY_PATH
 
 MAX_RESULTS = 10
 CONTEXT_LINES = 2
+
+STOPWORDS = frozenset(
+    "a an and are as at be by do for from has have how i if in is it"
+    " its me my no not of on or our so the to up us was we what when"
+    " where which who why will with you your".split()
+)
+
+
+def _extract_search_pattern(query: str) -> str:
+    """Convert a natural-language query into a ripgrep-safe OR pattern.
+
+    Strips punctuation, removes stopwords, drops short words, and joins
+    remaining keywords with ``|`` so ripgrep matches any of them.
+    Falls back to ``re.escape(query)`` if no keywords survive.
+    """
+    cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", query.lower())
+    words = [w for w in cleaned.split() if w not in STOPWORDS and len(w) >= 3]
+    if not words:
+        return re.escape(query)
+    return "|".join(words)
 
 
 def search_library(query: str, library_path: str | None = None, max_results: int = MAX_RESULTS) -> list[dict]:
@@ -35,7 +56,7 @@ def search_library(query: str, library_path: str | None = None, max_results: int
                 "--line-number",
                 "--color", "never",
                 "--max-filesize", "100K",     # skip huge files
-                query,
+                _extract_search_pattern(query),
                 str(lib),
             ],
             capture_output=True,
