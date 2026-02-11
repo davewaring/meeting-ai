@@ -3,7 +3,7 @@
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -123,10 +123,18 @@ async def start():
 
 
 @app.post("/api/stop")
-async def stop():
+async def stop(request: Request):
     """Stop recording, close connections, export VTT."""
     if app_state.state != "recording":
         return JSONResponse({"error": "Not recording"}, status_code=409)
+
+    # Read optional topic from request body
+    topic = "meeting"
+    try:
+        body = await request.json()
+        topic = body.get("topic", "meeting") or "meeting"
+    except Exception:
+        pass
 
     app_state.state = "processing"
 
@@ -149,7 +157,7 @@ async def stop():
     vtt_path = None
     processed_path = None
     if app_state.transcript_mgr.entry_count() > 0:
-        vtt_path = app_state.transcript_mgr.save_vtt(meeting_title="meeting")
+        vtt_path = app_state.transcript_mgr.save_vtt(meeting_title=topic)
         # Auto-process transcript (extract decisions, tasks, ideas)
         try:
             processed_path = await auto_process_transcript(vtt_path)

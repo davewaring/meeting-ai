@@ -98,7 +98,7 @@ class TranscriptManager:
         month_dir.mkdir(parents=True, exist_ok=True)
 
         safe_title = meeting_title.replace(" ", "-").replace("/", "-")
-        filename = f"{now.strftime('%Y-%m-%d')}_{safe_title}.vtt"
+        filename = f"{now.strftime('%Y-%m-%d_%H-%M')}_{safe_title}.vtt"
         filepath = month_dir / filename
 
         vtt_content = self.export_vtt()

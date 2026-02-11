@@ -46,7 +46,23 @@ header h1 {
 
 .header-right {
     display: flex;
+    align-items: center;
     gap: 8px;
+}
+
+#topic-input {
+    padding: 8px 12px;
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+    background: #16213e;
+    color: #e0e0e0;
+    font-size: 14px;
+    width: 180px;
+    outline: none;
+}
+
+#topic-input:focus {
+    border-color: #4ecca3;
 }
 
 /* --- Badges --- */
