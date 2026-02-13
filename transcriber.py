@@ -5,7 +5,7 @@ from typing import Callable
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from collections import Counter
-from config import DEEPGRAM_API_KEY, SAMPLE_RATE, ENABLE_DIARIZATION
+from config import DEEPGRAM_API_KEY, SAMPLE_RATE, TWILIO_SAMPLE_RATE, ENABLE_DIARIZATION
 
 
 def _dominant_speaker(words) -> int | None:
@@ -41,12 +41,14 @@ class TranscriptionResult:
 class DeepgramTranscriber:
     """Manages a streaming connection to Deepgram using SDK v5."""
 
-    def __init__(self, on_transcript: Callable | None = None):
+    def __init__(self, on_transcript: Callable | None = None, encoding: str = "linear16"):
         """
         Args:
             on_transcript: callback(TranscriptionResult) called for each result
+            encoding: audio encoding — "linear16" for BlackHole, "mulaw" for Twilio
         """
         self.on_transcript = on_transcript
+        self._encoding = encoding
         self._client = AsyncDeepgramClient(api_key=DEEPGRAM_API_KEY)
         self._socket = None
         self._ctx_manager = None
@@ -54,11 +56,16 @@ class DeepgramTranscriber:
 
     async def connect(self):
         """Open a streaming WebSocket connection to Deepgram."""
+        if self._encoding == "mulaw":
+            sample_rate = str(TWILIO_SAMPLE_RATE)
+        else:
+            sample_rate = str(SAMPLE_RATE)
+
         params = dict(
             model="nova-3",
             language="en",
-            encoding="linear16",
-            sample_rate=str(SAMPLE_RATE),
+            encoding=self._encoding,
+            sample_rate=sample_rate,
             channels="1",
             punctuate="true",
             interim_results="true",
@@ -72,7 +79,7 @@ class DeepgramTranscriber:
         self._socket = await self._ctx_manager.__aenter__()
         # Start background task to receive transcription results
         self._recv_task = asyncio.create_task(self._receive_loop())
-        print("Deepgram connected and ready.")
+        print(f"Deepgram connected ({self._encoding}, {sample_rate}Hz).")
 
     async def _receive_loop(self):
         """Background task that reads results from Deepgram."""
