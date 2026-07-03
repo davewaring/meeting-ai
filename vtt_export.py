@@ -7,16 +7,20 @@ from pathlib import Path
 def format_vtt(entries: list[dict]) -> str:
     """Format transcript entries as a WebVTT string.
 
-    Each entry: {"start_ms": int, "end_ms": int, "text": str, "speaker": int | None}
+    Each entry: {"start_ms": int, "end_ms": int, "text": str, "speaker": int | str | None}
+    Entries are sorted by start time — split-channel mode appends from two
+    transcribers whose results can arrive out of order.
     """
     lines = ["WEBVTT", ""]
-    for i, entry in enumerate(entries, 1):
+    for i, entry in enumerate(sorted(entries, key=lambda e: e["start_ms"]), 1):
         start = _ms_to_vtt_time(entry["start_ms"])
         end = _ms_to_vtt_time(entry["end_ms"])
         lines.append(str(i))
         lines.append(f"{start} --> {end}")
         speaker = entry.get("speaker")
-        if speaker is not None:
+        if isinstance(speaker, str):
+            lines.append(f"<v {speaker}>{entry['text']}")
+        elif speaker is not None:
             lines.append(f"<v Speaker {speaker}>{entry['text']}")
         else:
             lines.append(entry["text"])

@@ -170,6 +170,91 @@ async def start_capture_stream(callback, stop_event: asyncio.Event):
         print("Audio capture stopped.")
 
 
+async def start_split_capture_stream(callback, stop_event: asyncio.Event):
+    """Stream BlackHole and microphone as SEPARATE channels (no mixing).
+
+    The channel a chunk arrives on is ground-truth speaker attribution for
+    two-party calls: mic = this machine's user, BlackHole = the remote side.
+
+    Args:
+        callback: async function receiving (source: str, audio_bytes: bytes),
+                  where source is "mic" or "remote"
+        stop_event: set this event to stop capture
+    """
+    bh = find_blackhole_device()
+    if bh is None:
+        raise RuntimeError(
+            "BlackHole audio device not found. "
+            "Install with: brew install blackhole-2ch"
+        )
+
+    mic = find_mic_device()
+
+    chunk_samples = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)
+    loop = asyncio.get_event_loop()
+
+    # One queue of (source, chunk) preserves arrival order across channels
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def bh_callback(indata, frames, time_info, status):
+        if status:
+            print(f"Audio status (blackhole): {status}")
+        loop.call_soon_threadsafe(queue.put_nowait, ("remote", indata.copy()))
+
+    def mic_callback(indata, frames, time_info, status):
+        if status:
+            print(f"Audio status (mic): {status}")
+        loop.call_soon_threadsafe(queue.put_nowait, ("mic", indata.copy()))
+
+    bh_stream = sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=CHANNELS,
+        dtype=DTYPE,
+        device=bh["index"],
+        blocksize=chunk_samples,
+        callback=bh_callback,
+    )
+
+    mic_stream = None
+    if mic:
+        mic_stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=CHANNELS,
+            dtype=DTYPE,
+            device=mic["index"],
+            blocksize=chunk_samples,
+            callback=mic_callback,
+        )
+
+    print(f"Starting split capture — remote: {bh['name']}")
+    bh_stream.start()
+    if mic_stream:
+        print(f"Starting split capture — mic: {mic['name']}")
+        mic_stream.start()
+    else:
+        print("No microphone found — capturing remote audio only.")
+
+    gains = {"remote": SPEAKER_VOLUME, "mic": MIC_VOLUME}
+
+    try:
+        while not stop_event.is_set():
+            try:
+                source, data = await asyncio.wait_for(queue.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
+            scaled = np.clip(
+                data.astype(np.int32) * gains[source], -32768, 32767
+            ).astype(np.int16)
+            await callback(source, scaled.tobytes())
+    finally:
+        bh_stream.stop()
+        bh_stream.close()
+        if mic_stream:
+            mic_stream.stop()
+            mic_stream.close()
+        print("Audio capture stopped.")
+
+
 if __name__ == "__main__":
     """Quick test: list devices and capture a short sample."""
     print("Available audio devices:")

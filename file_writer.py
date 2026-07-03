@@ -18,11 +18,12 @@ class FileWriter:
         self._file = open(self._path, "w", encoding="utf-8")
         self._start_time = time.monotonic()
 
-    def write_line(self, text: str, speaker: int | None = None, elapsed_seconds: float | None = None):
+    def write_line(self, text: str, speaker: int | str | None = None, elapsed_seconds: float | None = None):
         """Append a timestamped line and flush immediately.
 
-        Format: [HH:MM:SS] Speaker N: text
-        Or:     [HH:MM:SS] text (when no speaker)
+        Format: [HH:MM:SS] Speaker N: text   (int speaker — diarization ID)
+        Or:     [HH:MM:SS] Dave W: text      (str speaker — channel label)
+        Or:     [HH:MM:SS] text              (no speaker)
         """
         if self._file is None:
             raise RuntimeError("FileWriter not started. Call start() first.")
@@ -32,7 +33,9 @@ class FileWriter:
 
         timestamp = _format_elapsed(elapsed_seconds)
 
-        if speaker is not None:
+        if isinstance(speaker, str):
+            line = f"[{timestamp}] {speaker}: {text}\n"
+        elif speaker is not None:
             line = f"[{timestamp}] Speaker {speaker}: {text}\n"
         else:
             line = f"[{timestamp}] {text}\n"

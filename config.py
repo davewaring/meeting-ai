@@ -41,6 +41,13 @@ WS_PORT = int(os.getenv("WS_PORT", "8765"))
 # Diarization
 ENABLE_DIARIZATION = os.getenv("ENABLE_DIARIZATION", "true").lower() in ("true", "1", "yes")
 
+# Local transcription (faster-whisper)
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "medium")
+
+# Split-channel speaker labels (local mode; channel = ground-truth attribution)
+MIC_SPEAKER_LABEL = os.getenv("MIC_SPEAKER_LABEL", "Dave W")
+REMOTE_SPEAKER_LABEL = os.getenv("REMOTE_SPEAKER_LABEL", "Remote")
+
 # Monitor
 MONITOR_MODEL = os.getenv("MONITOR_MODEL", "claude-sonnet-4-5-20250929")
 MONITOR_COOLDOWN = int(os.getenv("MONITOR_COOLDOWN", "45"))
